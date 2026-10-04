@@ -301,6 +301,82 @@ def test_browser_lazily_builds_input_dispatch_for_exact_target(monkeypatch):
     })
 
 
+def test_browser_factory_keeps_direct_chrome_independent_of_stealth(monkeypatch):
+    import jev_ultrafast.browser_factory as factory
+
+    browser = Mock()
+    monkeypatch.setenv("JEV_BROWSER", "chrome")
+    monkeypatch.setattr(factory, "Browser", browser)
+
+    factory.create_browser("https://example.test")
+
+    browser.assert_called_once_with("https://example.test")
+
+
+def test_browser_factory_loads_stealth_only_when_selected(monkeypatch):
+    import jev_ultrafast.browser_factory as factory
+    import jev_ultrafast.stealth as stealth
+
+    create_stealth = Mock()
+    monkeypatch.setenv("JEV_BROWSER", "stealth")
+    monkeypatch.setattr(stealth, "create_stealth_browser", create_stealth)
+
+    factory.create_browser("https://example.test")
+
+    create_stealth.assert_called_once_with("https://example.test")
+
+
+def test_human_input_finds_its_exact_cdp_target():
+    from jev_ultrafast.stealth import HumanInput
+
+    first, expected = object(), object()
+    first_session = Mock(send=Mock(return_value={"targetInfo": {"targetId": "target-1"}}))
+    expected_session = Mock(send=Mock(return_value={"targetInfo": {"targetId": "target-2"}}))
+    context = Mock()
+    context.pages = [first, expected]
+    context.new_cdp_session.side_effect = lambda candidate: {
+        first: first_session,
+        expected: expected_session,
+    }[candidate]
+    browser = Mock(contexts=[context])
+
+    assert HumanInput._find_target_page(browser, "target-2") is expected
+    first_session.detach.assert_called_once_with()
+    expected_session.detach.assert_called_once_with()
+
+
+@pytest.mark.parametrize("humanize,patch_calls", [(False, 0), (True, 1)])
+def test_human_input_worker_honors_humanize_flag(monkeypatch, humanize, patch_calls):
+    import queue
+    import threading
+
+    import cloakbrowser.human
+    import playwright.sync_api
+
+    from jev_ultrafast.stealth import HumanInput
+
+    page_object = object()
+    browser = Mock()
+    playwright_client = Mock()
+    playwright_client.chromium.connect_over_cdp.return_value = browser
+    manager = Mock()
+    manager.start.return_value = playwright_client
+    patch = Mock()
+    monkeypatch.setattr(playwright.sync_api, "sync_playwright", Mock(return_value=manager))
+    monkeypatch.setattr(cloakbrowser.human, "patch_browser", patch)
+
+    worker = HumanInput.__new__(HumanInput)
+    worker._commands = queue.Queue()
+    worker._commands.put(None)
+    worker._ready = threading.Event()
+    worker._error = None
+    worker._find_target_page = Mock(return_value=page_object)
+    worker._serve("http://cdp.test", "target-2", humanize)
+
+    assert worker._page is page_object and worker._error is None
+    assert patch.call_count == patch_calls
+
+
 @pytest.mark.parametrize("response", [{"exceptionDetails": {}}, {"result": {}}])
 def test_interrupted_dropdown_mutation_cannot_be_retried_as_stale(monkeypatch, response):
     import jev_ultrafast.browser as browser

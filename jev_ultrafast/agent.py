@@ -4,7 +4,8 @@ import base64
 import time
 from pathlib import Path
 
-from .browser import Browser, StalePage
+from .browser import StalePage
+from .browser_factory import create_browser
 from .model import action_space, choose, field_context, field_text
 from .questions import MAX_STEPS
 
@@ -16,7 +17,7 @@ class Agent:
             raise ValueError("Supply a task")
         plan = [task]
         self.pending_text = None
-        self.browser = Browser(url)
+        self.browser = create_browser(url)
         self.record_dir = Path(record_dir) if record_dir else None
         self.screenshots = screenshots or bool(record_dir)
         try:
