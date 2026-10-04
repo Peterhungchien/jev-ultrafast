@@ -123,12 +123,72 @@
     }
   }
   const text=words.join('\n').slice(0,6000), height=document.documentElement.scrollHeight;
+  // Read-only list context: rendered-row counts and a small look-ahead, never
+  // new action targets. Keep arbitrary offscreen article bodies/footers out.
+  const rowSelector='li,article,tr,[role="listitem"],[role="row"]';
+  const listSelector='ul,ol,table,[role="list"],[role="table"],[role="grid"]';
+  const excluded='nav,header,footer,aside,[role="navigation"],[role="menu"],'+
+    '[role="menubar"],[role="listbox"]';
+  const candidates=new Set(document.querySelectorAll(listSelector));
+  for (const row of document.querySelectorAll(rowSelector))
+    if (!row.closest(listSelector)) candidates.add(row.parentElement);
+  const groups=[]; let omittedGroups=0, previewBudget=2400;
+  const rowText=e=>{
+    const out=[], reader=document.createTreeWalker(e,NodeFilter.SHOW_TEXT);
+    let n,size=0;
+    while ((n=reader.nextNode()) && size<240) {
+      const parent=n.parentElement, value=n.textContent.replace(/\s+/g,' ').trim();
+      if (!value || !parent || parent.closest('script,style,noscript,template') || !visible(parent)) continue;
+      out.push(value); size+=value.length+1;
+    }
+    return out.join(' ').slice(0,240);
+  };
+  for (const root of candidates) {
+    if (!root || root===document.body || root.closest(excluded) || !visible(root)) continue;
+    const bounds=root.getBoundingClientRect();
+    if (!bounds.width || !bounds.height || bounds.bottom<=0 || bounds.top>=innerHeight ||
+        bounds.right<=0 || bounds.left>=innerWidth) continue;
+    // Only immediate list members belong to this group, not nested lists.
+    const rows=[...root.querySelectorAll(rowSelector)].filter(e=>
+      (e.closest(listSelector)===root && !root.contains(e.parentElement.closest(rowSelector))) || e.parentElement===root);
+    if (rows.length<2) continue;
+    if (groups.length>=4) { omittedGroups++; continue; }
+    let rendered=0, inViewport=0, below=0, omittedPreview=0;
+    const preview=[];
+    for (const [index,row] of rows.slice(0,200).entries()) {
+      if (row.closest(excluded) || !visible(row)) continue;
+      const r=row.getBoundingClientRect();
+      if (!r.width || !r.height) continue;
+      rendered++;
+      if (r.right<=0 || r.left>=innerWidth) continue;
+      if (r.bottom>0 && r.top<innerHeight) inViewport++;
+      else if (r.top>=innerHeight) {
+        below++;
+        if (r.top>=innerHeight*2) continue;
+        if (preview.length>=6 || previewBudget<=0) { omittedPreview++; continue; }
+        const value=rowText(row).slice(0,previewBudget);
+        if (value) { preview.push({position:index+1,text:value}); previewBudget-=value.length; }
+      }
+    }
+    if (rendered<2) continue;
+    const heading=root.previousElementSibling;
+    const label=(root.getAttribute('aria-label') ||
+      (root.tagName==='TABLE' && root.caption && visible(root.caption) ? rowText(root.caption) : '') ||
+      (heading?.matches('h1,h2,h3,h4,h5,h6,[role="heading"],[role="status"]') ? rowText(heading) : '') || '')
+      .replace(/\s+/g,' ').trim().slice(0,240);
+    const reported=root.getAttribute('aria-rowcount') || rows[0]?.getAttribute('aria-setsize');
+    groups.push({label,rendered_rows:rendered,visible_rows:inViewport,rows_below_viewport:below,
+      uninspected_rows:Math.max(0,rows.length-200),
+      reported_total:/^\d+$/.test(reported||'') ? Number(reported) : null,
+      preview,omitted_preview_rows:omittedPreview});
+  }
+  const list_context={groups,omitted_groups:omittedGroups};
   const page_key=cache.pageKey(), guards={};
   for (const a of actions) if (!(a.node in guards)) guards[a.node]=cache.guard(cache.nodes.get(a.node));
   // Compare meaning and identity. Geometry is always resolved and hit-tested just before input.
   const semantics=actions.map(({rect,...action})=>action);
   const marker=[performance.timeOrigin,location.href,scrollX,scrollY,innerWidth,innerHeight,
-    document.title,text,semantics,cache.fieldState(document)];
+    document.title,text,semantics,list_context,cache.fieldState(document)];
   const omitted_actions=Math.max(0,actions.length-250);
   actions.splice(250);
   actions.forEach((a,i)=>a.id='e'+(i+1));
@@ -136,5 +196,5 @@
   if (scrollY>0) actions.push({id:'scroll_up',kind:'scroll',label:'Scroll up',delta:-560});
   actions.push({id:'wait',kind:'wait',label:'Wait for the page to update'});
   return {url:location.href,title:document.title,w:innerWidth,h:innerHeight,text,
-    scroll:{y:scrollY,height},actions,marker,page_key,guards,omitted_actions};
+    scroll:{y:scrollY,height},actions,marker,page_key,guards,omitted_actions,list_context};
 })()

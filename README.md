@@ -220,7 +220,10 @@ intentionally single-agent and serializes its commands.
   [focus-stall investigation](docs/focus-stall.md) for evidence and scope.
 - **Allow slow navigation to settle.** Read-only observations retry stale documents with bounded
   backoff for up to 30 seconds; executed browser mutations are never replayed.
-- **Send visible text.** Offscreen article bodies and footers do not fill the model context.
+- **Send visible text with bounded list context.** Ordinary offscreen prose and footers stay out
+  of context. Lists, tables, and repeated semantic cards intersecting the viewport additionally
+  expose rendered/visible row counts and up to one viewport of read-only row previews below
+  the fold. Previews never become action targets; scroll before clicking them.
 - **Reuse an interrupted text request.** A generated value survives a stale-page retry only if the
   entire text-helper input is unchanged.
 
@@ -254,6 +257,16 @@ stealth runs. Upstream's measurements and raw traces are in
 This fork's stealth mode intentionally trades that speed for human-like behavior: expect seconds
 per input action. The same policy opened Wikipedia in **2.798 s** and passed a local hotel
 search/filter task in **1.896 s** upstream.
+
+Long or paginated result lists are not exhaustively read in one observation. `list_context` is
+bounded to four groups, 200 inspected rows per group, six preview rows per group, 240 characters
+per preview, and 2,400 preview characters in total. Counts describe inspected rendered DOM rows,
+not the site's full result total; any ARIA-reported total is labeled separately. Hidden rows,
+ordinary offscreen prose, and navigation/footer lists are excluded. Lists without semantic list,
+row, or article markup may have no preview. For enumeration goals, specify the desired coverage,
+for example: “Collect at least ten titles, scrolling until you have seen ten or reached the end,”
+or “Inspect every result page.” Pagination controls alone do not prove completeness. See
+[bounded list context](docs/list-context.md) for the schema, safety limits, and validation.
 
 A `DONE` choice still requires independent outcome verification. The DOM reader handles common
 HTML and ARIA controls, not the full accessible-name specification. Shadow roots, frames, canvas,

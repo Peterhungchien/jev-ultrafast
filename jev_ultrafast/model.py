@@ -108,7 +108,7 @@ def choose(state, goal, history):
     body = {
         "model": os.environ.get("TYPESAFE_MODEL", "jev-latest"),
         "state": {
-            "page": {k: state[k] for k in ("url", "title", "text")},
+            "page": {k: state[k] for k in ("url", "title", "text", "list_context") if k in state},
             "elements": elements,
             "recent_actions": [
                 {k: h.get(k) for k in ("action", "kind", "text", "page_changed", "relevant_changed")}

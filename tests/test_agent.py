@@ -114,6 +114,39 @@ def test_all_heads_are_one_request_and_only_matching_head_executes(monkeypatch):
     assert set(calls[0]["questions"]) == {"operation", "click_target", "type_text_target"}
 
 
+def test_list_context_is_read_only_in_the_single_decision_request(monkeypatch):
+    state = page()
+    state["list_context"] = {
+        "groups": [{"rendered_rows": 10, "visible_rows": 2, "rows_below_viewport": 8,
+                    "preview": [{"position": 3, "text": "Job below the fold"}]}],
+        "omitted_groups": 0,
+    }
+
+    def post(_url, _key, body):
+        assert body["state"]["page"]["list_context"] == state["list_context"]
+        assert len(body["state"]["elements"]) == 2
+        assert set(body["questions"]["click_target"]["criteria"]) == {"1", "2"}
+        assert "read-only hints" in body["questions"]["operation"]["instructions"]["rules"]
+        return {"model": "test", "answers": {
+            "operation": choice(body["questions"]["operation"]["criteria"], "CLICK"),
+            "click_target": choice(["1", "2"], "2"),
+        }}
+
+    monkeypatch.setenv("TYPESAFE_API_KEY", "test")
+    post = Mock(side_effect=post)
+    monkeypatch.setattr(model, "post_json", post)
+    assert model.choose(state, "Inspect all jobs", [])["choice"] == "e3"
+    post.assert_called_once()
+
+
+def test_list_context_changes_the_page_fingerprint():
+    before = page()
+    before["list_context"] = {"groups": [], "omitted_groups": 0}
+    after = deepcopy(before)
+    after["list_context"]["groups"].append({"preview": [{"position": 3, "text": "New result"}]})
+    assert fingerprint(before) != fingerprint(after)
+
+
 def test_click_cannot_consume_a_text_target(monkeypatch):
     def post(_url, _key, body):
         return {

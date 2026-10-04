@@ -1,0 +1,110 @@
+{
+  "url": "https://careers.hitachi.com/jobs",
+  "list_context": {
+    "groups": [
+      {
+        "label": "",
+        "rendered_rows": 10,
+        "visible_rows": 2,
+        "rows_below_viewport": 8,
+        "uninspected_rows": 0,
+        "reported_total": null,
+        "preview": [
+          {
+            "position": 3,
+            "text": "Field Service Engineer (f/m/n) Lodz, Lodz, Poland HITACHI ENERGY POLAND SP. Z O.O."
+          },
+          {
+            "position": 4,
+            "text": "System Administrator Cairo, Cairo, Egypt Hitachi Rail GTS Egypt LLC"
+          },
+          {
+            "position": 5,
+            "text": "BIM Coordinator Cairo, Cairo, Egypt Hitachi Rail GTS Egypt LLC"
+          },
+          {
+            "position": 6,
+            "text": "Category Specialist Dammam, Eastern Region, Saudi Arabia HITACHI ENERGY LTD"
+          },
+          {
+            "position": 7,
+            "text": "Secondary Design Engineer Chennai, Tamil Nadu, India HITACHI ENERGY TECHNOLOGY SERVICES PRIVATE LIMITED"
+          }
+        ],
+        "omitted_preview_rows": 0
+      }
+    ],
+    "omitted_groups": 0
+  }
+}
+[
+  {
+    "label": "1",
+    "ancestors": [
+      {
+        "tag": "LI",
+        "role": null
+      },
+      {
+        "tag": "UL",
+        "role": null
+      },
+      {
+        "tag": "NAV",
+        "role": null
+      }
+    ]
+  },
+  {
+    "label": "2",
+    "ancestors": [
+      {
+        "tag": "LI",
+        "role": null
+      },
+      {
+        "tag": "UL",
+        "role": null
+      },
+      {
+        "tag": "NAV",
+        "role": null
+      }
+    ]
+  },
+  {
+    "label": "3",
+    "ancestors": [
+      {
+        "tag": "LI",
+        "role": null
+      },
+      {
+        "tag": "UL",
+        "role": null
+      },
+      {
+        "tag": "NAV",
+        "role": null
+      }
+    ]
+  },
+  {
+    "label": "4",
+    "ancestors": [
+      {
+        "tag": "LI",
+        "role": null
+      },
+      {
+        "tag": "UL",
+        "role": null
+      },
+      {
+        "tag": "NAV",
+        "role": null
+      }
+    ]
+  }
+]
+daemon stopped — will restart fresh on next call

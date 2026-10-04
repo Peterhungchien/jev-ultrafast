@@ -191,6 +191,8 @@ class Browser:
 
 def fingerprint(state):
     content = {k: state[k] for k in ("url", "text", "actions", "scroll")}
+    if "list_context" in state:
+        content["list_context"] = state["list_context"]
     return hashlib.sha256(json.dumps(content, sort_keys=True).encode()).hexdigest()
 
 

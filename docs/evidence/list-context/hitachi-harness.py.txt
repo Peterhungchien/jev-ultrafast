@@ -1,0 +1,16 @@
+import json
+import os
+import subprocess
+os.environ.update(BU_NAME='jev-list-check',JEV_CDP_PORT='19344',JEV_HEADLESS='1',JEV_HUMANIZE='0')
+from jev_ultrafast.browser_factory import create_browser
+from jev_ultrafast.stealth import _shutdown
+browser=None
+try:
+    browser=create_browser('https://careers.hitachi.com/jobs')
+    state=browser.observe(screenshot=False)
+    print(json.dumps({'url':state['url'],'list_context':state['list_context']},indent=2),flush=True)
+    print(json.dumps(browser.evaluate("""[...document.querySelectorAll('a[href]')].filter(e=>/\\/jobs\\//.test(e.getAttribute('href'))).slice(0,4).map(e=>({label:e.textContent.trim(), ancestors:[e.parentElement,e.parentElement.parentElement,e.parentElement.parentElement.parentElement].map(p=>({tag:p.tagName,role:p.getAttribute('role')}))}))"""),indent=2),flush=True)
+finally:
+    if browser:browser.close()
+    _shutdown()
+    subprocess.run(['uv','run','browser-harness','--reload'],check=False)
