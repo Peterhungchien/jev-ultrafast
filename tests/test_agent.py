@@ -377,6 +377,37 @@ def test_human_input_worker_honors_humanize_flag(monkeypatch, humanize, patch_ca
     assert patch.call_count == patch_calls
 
 
+def test_parallel_worker_output_is_prefixed_and_keep_open_is_signaled():
+    import io
+    import threading
+
+    from examples.parallel_processes import KEEP_OPEN_READY, stream_output
+
+    ready = threading.Event()
+    destination = io.StringIO()
+    stream_output(2, io.StringIO(f"ready  Search\n{KEEP_OPEN_READY}\n"), destination, ready)
+
+    assert destination.getvalue().splitlines() == [
+        "[worker 2] ready  Search",
+        "[worker 2] task complete; browser remains open",
+    ]
+    assert ready.is_set()
+
+
+def test_parallel_worker_stderr_has_a_distinct_prefix():
+    import io
+    import threading
+
+    from examples.parallel_processes import stream_output
+
+    ready = threading.Event()
+    destination = io.StringIO()
+    stream_output(3, io.StringIO("model failed\n"), destination, ready, stderr=True)
+
+    assert destination.getvalue() == "[worker 3 stderr] model failed\n"
+    assert not ready.is_set()
+
+
 @pytest.mark.parametrize("response", [{"exceptionDetails": {}}, {"result": {}}])
 def test_interrupted_dropdown_mutation_cannot_be_retried_as_stale(monkeypatch, response):
     import jev_ultrafast.browser as browser
