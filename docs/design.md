@@ -18,6 +18,8 @@ Freshness compares semantic state instead of counting DOM mutations. Before a cl
 
 Browser mutations are not retried by transport recovery. Completed execution is logged before the next observation, including when that observation encounters a navigation. An interrupted native-select evaluation stops because its change event may already have fired. Typing uses a browser select-all command followed by CDP text insertion, so existing input contents are replaced.
 
+The core `Browser` accepts an optional input-dispatch factory and has no CloakBrowser imports. Without a factory, validated clicks, typing, and wheel events use direct CDP input. This fork's separate browser factory selects the optional stealth adapter by default; `JEV_BROWSER=chrome` constructs the generic direct-CDP browser unchanged. The stealth adapter connects a humanized Playwright client to the exact owned target. Pointer movement completes before the primary session rechecks node identity, geometry, and occlusion; mouse-down happens only after that recheck. Snapshot reads, guards, and native dropdown handling stay on the primary session.
+
 The next observation waits for up to two animation frames or 50 ms after an interaction. Editable ARIA comboboxes instead wait for visible options, capped at 200 ms. This avoids paying for a prediction before autocomplete suggestions arrive. An explicit WAIT remains 100 ms; network loading is never fast-forwarded in the recording.
 
 ## What changed after the first demo
@@ -28,6 +30,6 @@ The audit also found that treating every INPUT as editable misclassified checkbo
 
 ## Boundaries
 
-Sixty browser actions and 120 decision requests bound a run. Up to 250 action candidates are retained; truncated candidates cannot be selected. The service stays loopback-only, serializes inspector actions, and checks Host, Origin, and a local request token. Credentials remain server-side. Tabs share the existing Chrome profile.
+Sixty browser actions and 120 decision requests bound a run. Up to 250 action candidates are retained; truncated candidates cannot be selected. The service stays loopback-only, exposes one agent, serializes inspector actions, and checks Host, Origin, and a local request token. Credentials remain server-side. In the default stealth mode, tabs in one process share a dedicated CloakBrowser profile; with `JEV_BROWSER=chrome`, tabs share the existing Chrome profile. Independent stealth processes require distinct browser-harness names and CDP ports; the parallel-process example assigns both before importing the browser stack.
 
 The policy is generic, but two websites do not establish broad reliability. Name resolution covers common labels, ARIA references, and text; it is not the browser's full accessibility algorithm. Shadow roots, frames, canvas, uploads, nested scrolling, pop-ups, and complex keyboard interactions can block progress. A valid action can still be wrong. Independent checks, rather than the model's DONE choice, determine whether the demonstrated task succeeded.
