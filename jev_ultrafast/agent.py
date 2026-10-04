@@ -10,6 +10,17 @@ from .model import action_space, choose, field_context, field_text
 from .questions import MAX_STEPS
 
 
+def relevant_change(before, after, action):
+    """Whether the acted-on document/target changed, ignoring unrelated page churn."""
+    node = action.get("node")
+    if type(node) is int and "page_key" in before and "page_key" in after:
+        if before["page_key"] != after["page_key"]:
+            return True
+        key = str(node)
+        return before.get("guards", {}).get(key) != after.get("guards", {}).get(key)
+    return before["fingerprint"] != after["fingerprint"]
+
+
 class Agent:
     def __init__(self, url, goals, *, record_dir=None, screenshots=False):
         task = goals.strip() if isinstance(goals, str) else "\n".join(goals).strip()
@@ -134,6 +145,7 @@ class Agent:
                     "operation": decision["operation"],
                     "target": decision["target"],
                     "page_changed": None,
+                    "relevant_changed": None,
                     "url": page["url"],
                     "usage": decision["usage"],
                     "executed_ms": round((time.perf_counter() - state["started_at"]) * 1000),
@@ -144,6 +156,7 @@ class Agent:
             state["elapsed_ms"] = round((time.perf_counter() - state["started_at"]) * 1000)
             state["history"][-1].update(
                 page_changed=state["page"]["fingerprint"] != page["fingerprint"],
+                relevant_changed=relevant_change(page, state["page"], action),
                 url=state["page"]["url"],
                 elapsed_ms=state["elapsed_ms"],
             )
@@ -154,7 +167,8 @@ class Agent:
             repeated = state["history"][-3:]
             state["status"] = (
                 "blocked"
-                if len(repeated) == 3 and all(h["page_changed"] is False and h["kind"] != "wait" for h in repeated)
+                if len(repeated) == 3
+                and all(h["relevant_changed"] is False and h["kind"] != "wait" for h in repeated)
                 else "ready"
             )
         else:

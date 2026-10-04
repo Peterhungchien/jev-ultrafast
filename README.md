@@ -35,8 +35,9 @@ Every page observation builds an indexed table of accessible elements and their 
 ...
 ```
 
-The operations are `CLICK`, `TYPE_TEXT`, `SELECT`, `SCROLL_UP`, `SCROLL_DOWN`, `WAIT`, `DONE`, and
-`BLOCKED`. Only supported operations and targets are offered.
+The operations are `CLICK`, `TYPE_TEXT`, `SUBMIT`, `SELECT`, `SCROLL_UP`, `SCROLL_DOWN`, `WAIT`,
+`DONE`, and `BLOCKED`. `SUBMIT` presses Enter on an observed populated single-line field. Only
+supported operations and targets are offered.
 
 ```text
                       one decision request
@@ -103,7 +104,9 @@ pip install "laya[serve]" && laya-serve
 `TEXT_MODEL_*` configures the small OpenAI-compatible model that writes field values (required for
 `TYPE_TEXT`). `.env.example` uses `inception/mercury-2.5` through OpenRouter; the code defaults to
 DeepSeek when those settings are omitted. Gemini, GLM, and any OpenAI-compatible endpoint also work
-— set `TEXT_MODEL_API_KEY`, `TEXT_MODEL_BASE_URL`, `TEXT_MODEL`, and `TEXT_MODEL_REASONING`.
+— set `TEXT_MODEL_API_KEY`, `TEXT_MODEL_BASE_URL`, `TEXT_MODEL`, and `TEXT_MODEL_REASONING`. Set
+`TEXT_MODEL_FALLBACK` to a stronger model on the same provider; it is tried up to twice only if
+prior output is invalid or null, and every call remains visible in the trace metadata.
 
 ### Browser — stealth by default
 
@@ -114,18 +117,21 @@ upstream path.
 
 The first stealth run downloads the CloakBrowser binary and opens a headed window; jev's tab, the
 snapshot reads, and the occlusion guards run there, while a humanized Playwright layer drives
-clicks and typing (Bézier mouse curves, per-character keystrokes). Knobs in `.env`:
+clicks and typing (Bézier mouse curves, per-character keystrokes). When an action opens a child tab,
+Jev adopts only a page whose CDP `openerId` belongs to its owned target chain and rebinds input to
+that exact target. Knobs in `.env`:
 
 | Variable | Effect |
 | --- | --- |
 | `JEV_BROWSER=chrome` | Upstream path: your regular Chrome, instant CDP input |
 | `JEV_HEADLESS=1` | Headless stealth window (much slower with humanize; headed recommended) |
 | `JEV_HUMANIZE=0` | Stealth fingerprints without behavioral humanization |
-| `JEV_PROXY` / `JEV_GEOIP=1` | Residential proxy (+ matching timezone/locale) for hard targets |
+| `JEV_PROXY` / `JEV_GEOIP=1` | Browser proxy override (+ matching timezone/locale); otherwise inherits `HTTPS_PROXY`/`HTTP_PROXY` |
 | `JEV_CDP_PORT` | DevTools port for the stealth browser (default 9242) |
 
 For bot-checked sites, add a residential proxy and `JEV_GEOIP=1` — CloakBrowser's own hard-target
-recipe.
+recipe. Set `JEV_PROXY=` to force direct browser traffic despite standard proxy variables. Local
+DevTools traffic always bypasses the outbound proxy.
 
 Chrome connects through [Browser Harness](https://github.com/browser-use/browser-harness),
 installed by `uv sync`. Run `uv run browser-harness --doctor` if it needs connecting. Allow remote

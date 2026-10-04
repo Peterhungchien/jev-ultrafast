@@ -10,6 +10,7 @@ the Playwright Sync API there.
 Set JEV_BROWSER=chrome to fall back to the local Chrome path with instant CDP
 input. JEV_HEADLESS=1 runs the stealth browser headless; JEV_HUMANIZE=0 turns
 off behavioral humanization; JEV_CDP_PORT overrides the DevTools port.
+JEV_PROXY takes precedence over standard HTTPS_PROXY/HTTP_PROXY variables.
 """
 
 import atexit
@@ -19,6 +20,7 @@ import time
 
 _LOCK = threading.Lock()
 _BROWSER = None
+_LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
 _STEALTH_INSTALL = (
     "Stealth browsing needs the optional dependencies. Run `uv sync --extra stealth` "
     "or install `jev-ultrafast[stealth]`."
@@ -41,6 +43,25 @@ def humanize_enabled():
     return _env_flag("JEV_HUMANIZE", default=True)
 
 
+def browser_proxy():
+    """Return the explicit browser proxy, or inherit standard proxy variables."""
+    if "JEV_PROXY" in os.environ:
+        return os.environ["JEV_PROXY"].strip() or None
+    for name in ("HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy", "HTTP_PROXY", "http_proxy"):
+        if value := os.environ.get(name, "").strip():
+            return value
+    return None
+
+
+def ensure_loopback_proxy_bypass():
+    """Keep daemon and Playwright control traffic away from an outbound proxy."""
+    for name in ("NO_PROXY", "no_proxy"):
+        values = [value.strip() for value in os.environ.get(name, "").split(",") if value.strip()]
+        known = {value.strip("[]").lower() for value in values}
+        values.extend(host for host in _LOOPBACK_HOSTS if host.lower() not in known)
+        os.environ[name] = ",".join(values)
+
+
 def ensure_stealth_browser():
     """Launch the stealth browser once per process and bind browser-harness to it.
 
@@ -50,25 +71,29 @@ def ensure_stealth_browser():
     """
     global _BROWSER
     with _LOCK:
+        ensure_loopback_proxy_bypass()
         os.environ["BU_CDP_URL"] = cdp_url()
         from browser_harness import admin
 
-        if admin.daemon_alive() and admin.daemon_browser_kind() != "cdp":
+        starting_browser = _BROWSER is None
+        if admin.daemon_alive() and (
+            starting_browser or admin.daemon_browser_kind() != "cdp"
+        ):
+            # A daemon from another process or an earlier browser may report
+            # kind=cdp while retaining a dead WebSocket. It cannot be proven to
+            # own the browser about to launch, so replace it before first use.
             admin.restart_daemon()
-        if _BROWSER is None:
+        if starting_browser:
             try:
                 from cloakbrowser import launch
             except ModuleNotFoundError:
                 raise RuntimeError(_STEALTH_INSTALL) from None
 
+            proxy = browser_proxy()
             _BROWSER = launch(
                 headless=_env_flag("JEV_HEADLESS", default=False),
                 humanize=humanize_enabled(),
-                **(
-                    {"proxy": os.environ["JEV_PROXY"]}
-                    if os.environ.get("JEV_PROXY")
-                    else {}
-                ),
+                **({"proxy": proxy} if proxy else {}),
                 **({"geoip": True} if os.environ.get("JEV_GEOIP", "").lower() in {"1", "true", "yes"} else {}),
                 args=[
                     f"--remote-debugging-port={cdp_port()}",
@@ -205,6 +230,9 @@ class HumanInput:
     def _do_type_text(self, text):
         self._page.keyboard.type(text)
 
+    def _do_press_key(self, key):
+        self._page.keyboard.press(key)
+
     def _do_wheel(self, delta):
         self._page.mouse.wheel(0, delta)
 
@@ -219,6 +247,9 @@ class HumanInput:
 
     def type_text(self, text):
         self._call("type_text", text)
+
+    def press_key(self, key):
+        self._call("press_key", key)
 
     def wheel(self, delta):
         self._call("wheel", delta)

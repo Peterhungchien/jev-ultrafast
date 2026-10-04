@@ -1,6 +1,7 @@
 """Offline contracts for a dynamic operation/target policy. No paid APIs."""
 
 import json
+import os
 import time
 from copy import deepcopy
 from unittest.mock import Mock
@@ -72,6 +73,23 @@ def test_one_index_per_node_with_operation_specific_targets():
     assert targets["CLICK"]["1"]["id"] == "e2"
     assert targets["CLICK"]["2"]["id"] == "e3"
     assert "WAIT" in controls
+
+
+def test_submit_has_its_own_operation_head_on_the_same_element():
+    actions = [*page()["actions"]]
+    actions.insert(2, {
+        "id": "submit",
+        "kind": "submit",
+        "label": "Submit Search",
+        "role": "textbox",
+        "value": "query",
+        "node": 10,
+    })
+
+    elements, targets, _controls = model.action_space(actions)
+
+    assert elements[0]["operations"] == ["TYPE_TEXT", "CLICK", "SUBMIT"]
+    assert targets["SUBMIT"]["1"]["id"] == "submit"
 
 
 def test_all_heads_are_one_request_and_only_matching_head_executes(monkeypatch):
@@ -149,6 +167,26 @@ def test_quoted_task_text_still_uses_the_llm(monkeypatch):
     assert post.call_count == 1
     sent = json.loads(post.call_args.args[2]["messages"][1]["content"])
     assert sent["goal"] == 'Fly from "Zurich" to London'
+
+
+def test_invalid_text_output_uses_configured_fallback_model(monkeypatch):
+    monkeypatch.setenv("TEXT_MODEL_API_KEY", "test")
+    monkeypatch.setenv("TEXT_MODEL", "small")
+    monkeypatch.setenv("TEXT_MODEL_FALLBACK", "strong")
+    post = Mock(side_effect=[
+        {"choices": [{"message": {"content": '{"text":null}'}}], "usage": {"total_tokens": 8}},
+        {"choices": [{"message": {"content": '{"text":null}'}}], "usage": {"total_tokens": 10}},
+        {"choices": [{"message": {"content": '{"text":"竖笛小魔王"}'}}], "usage": {"total_tokens": 12}},
+    ])
+    monkeypatch.setattr(model, "post_json", post)
+
+    value, helper = model.field_text({"goal": "Search for the creator"})
+
+    assert value == "竖笛小魔王"
+    assert [call.args[2]["model"] for call in post.call_args_list] == ["small", "strong", "strong"]
+    assert helper["model"] == "strong" and helper["calls"] == 3
+    assert [attempt["usage"]["total_tokens"] for attempt in helper["attempts"]] == [8, 10, 12]
+    assert all(call.args[2]["temperature"] == 0 for call in post.call_args_list)
 
 
 def test_missing_text_credential_stops_before_guessing(monkeypatch):
@@ -239,6 +277,58 @@ def test_observation_is_one_atomic_browser_read(monkeypatch):
     assert cdp.call_args.args[0] == "Runtime.evaluate"
 
 
+def test_initial_navigation_uses_a_proxy_tolerant_response_budget(monkeypatch):
+    import jev_ultrafast.browser as browser
+
+    calls = []
+
+    def cdp(method, session_id=None, **params):
+        calls.append((method, session_id, params))
+        if method == "Target.createTarget":
+            return {"targetId": "target-1"}
+        if method == "Target.attachToTarget":
+            return {"sessionId": "session-1"}
+        if method == "Runtime.evaluate":
+            return {"result": {"value": "complete"}}
+        return {}
+
+    monkeypatch.setattr(browser, "ensure_daemon", Mock())
+    monkeypatch.setattr(browser, "cdp", cdp)
+
+    owned = browser.Browser("https://example.test")
+    owned.close()
+
+    navigation = next(call for call in calls if call[0] == "Page.navigate")
+    assert navigation[2]["_response_timeout"] == browser.NAVIGATION_RESPONSE_TIMEOUT == 30
+
+
+def test_initial_navigation_timeout_is_not_retried_and_closes_target(monkeypatch):
+    import jev_ultrafast.browser as browser
+
+    calls = []
+
+    def cdp(method, session_id=None, **params):
+        calls.append((method, session_id, params))
+        if method == "Target.createTarget":
+            return {"targetId": "target-1"}
+        if method == "Target.attachToTarget":
+            return {"sessionId": "session-1"}
+        if method == "Page.navigate":
+            raise TimeoutError("slow proxy")
+        return {}
+
+    monkeypatch.setattr(browser, "ensure_daemon", Mock())
+    monkeypatch.setattr(browser, "cdp", cdp)
+
+    with pytest.raises(TimeoutError, match="not acknowledged within 30 seconds"):
+        browser.Browser("https://example.test")
+
+    assert sum(call[0] == "Page.navigate" for call in calls) == 1
+    assert [call for call in calls if call[0] == "Target.closeTarget"] == [
+        ("Target.closeTarget", None, {"targetId": "target-1"})
+    ]
+
+
 def test_executor_rejects_a_stale_page_before_browser_input(monkeypatch):
     import jev_ultrafast.browser as browser
 
@@ -251,6 +341,40 @@ def test_executor_rejects_a_stale_page_before_browser_input(monkeypatch):
     with pytest.raises(StalePage):
         b.act(page()["actions"][0], page(), "book")
     operation.assert_not_called()
+
+
+def test_target_scoped_freshness_ignores_unrelated_page_marker_churn():
+    import jev_ultrafast.browser as browser
+
+    b = browser.Browser.__new__(browser.Browser)
+    b.evaluate = Mock(return_value=[["document", "https://example.test"], ["target-guard"]])
+    observed = {
+        "page_key": ["document", "https://example.test"],
+        "guards": {"10": ["target-guard"]},
+        "marker": ["old carousel"],
+    }
+
+    assert b.fresh(observed, {"kind": "fill", "node": 10})
+    assert "c.guard" in b.evaluate.call_args.args[0]
+
+
+def test_relevant_change_ignores_carousel_but_tracks_target_scope():
+    before = {
+        "fingerprint": "old-carousel",
+        "page_key": ["document", "https://example.test", 0],
+        "guards": {"10": ["search", "query"]},
+    }
+    carousel = {
+        "fingerprint": "new-carousel",
+        "page_key": ["document", "https://example.test", 0],
+        "guards": {"10": ["search", "query"]},
+    }
+    target = deepcopy(carousel)
+    target["guards"]["10"] = ["search", "submitted"]
+    action = {"kind": "submit", "node": 10}
+
+    assert loop.relevant_change(before, carousel, action) is False
+    assert loop.relevant_change(before, target, action) is True
 
 
 def test_humanized_pointer_rechecks_target_before_mouse_down(monkeypatch):
@@ -273,6 +397,55 @@ def test_humanized_pointer_rechecks_target_before_mouse_down(monkeypatch):
         })
     input_dispatch.move.assert_called_once_with(50, 25)
     input_dispatch.click.assert_not_called()
+
+
+def test_submit_focuses_observed_field_and_presses_enter(monkeypatch):
+    import jev_ultrafast.browser as browser
+
+    calls = []
+
+    def cdp(method, **params):
+        calls.append((method, params))
+        if method == "Runtime.evaluate":
+            return {"result": {"value": {"x": 50, "y": 25}}}
+        return {}
+
+    monkeypatch.setattr(browser, "cdp", cdp)
+    result = browser_operation({
+        "operation": "act",
+        "session": "test",
+        "action": {"id": "e1", "kind": "submit", "node": 1, "value": "query"},
+    })
+
+    assert result == {"executed": "e1"}
+    key_events = [params for method, params in calls if method == "Input.dispatchKeyEvent"]
+    assert [(event["type"], event["key"]) for event in key_events] == [
+        ("keyDown", "Enter"),
+        ("keyUp", "Enter"),
+    ]
+    assert key_events[0]["text"] == "\r"
+
+
+def test_humanized_submit_uses_target_bound_input_worker(monkeypatch):
+    import jev_ultrafast.browser as browser
+
+    input_dispatch = Mock()
+    monkeypatch.setattr(
+        browser,
+        "cdp",
+        Mock(return_value={"result": {"value": {"x": 50, "y": 25}}}),
+    )
+
+    browser_operation({
+        "operation": "act",
+        "session": "test",
+        "action": {"id": "e1", "kind": "submit", "node": 1, "value": "query"},
+        "input": input_dispatch,
+    })
+
+    input_dispatch.move.assert_called_once_with(50, 25)
+    input_dispatch.click.assert_called_once_with()
+    input_dispatch.press_key.assert_called_once_with("Enter")
 
 
 def test_browser_lazily_builds_input_dispatch_for_exact_target(monkeypatch):
@@ -301,6 +474,38 @@ def test_browser_lazily_builds_input_dispatch_for_exact_target(monkeypatch):
     })
 
 
+def test_browser_adopts_only_a_popup_from_its_owned_target(monkeypatch):
+    import jev_ultrafast.browser as browser
+
+    b = browser.Browser.__new__(browser.Browser)
+    b.target = "parent"
+    b.targets = {"parent"}
+    b.session = "old-session"
+    worker = Mock()
+    b.input_dispatch = worker
+    calls = []
+
+    def cdp(method, session_id=None, **params):
+        calls.append((method, session_id, params))
+        if method == "Target.getTargets":
+            return {"targetInfos": [
+                {"targetId": "foreign", "type": "page", "openerId": "someone-else"},
+                {"targetId": "child", "type": "page", "openerId": "parent", "url": ""},
+            ]}
+        if method == "Target.attachToTarget":
+            return {"sessionId": "child-session"}
+        return {}
+
+    monkeypatch.setattr(browser, "cdp", cdp)
+
+    assert b._adopt_owned_popup() is True
+    assert b.input_dispatch is None
+    worker.stop.assert_called_once_with()
+    assert b.target == "child" and b.session == "child-session"
+    assert b.targets == {"parent", "child"}
+    assert not any(call[2].get("targetId") == "foreign" for call in calls)
+
+
 def test_browser_factory_keeps_direct_chrome_independent_of_stealth(monkeypatch):
     import jev_ultrafast.browser_factory as factory
 
@@ -324,6 +529,70 @@ def test_browser_factory_loads_stealth_only_when_selected(monkeypatch):
     factory.create_browser("https://example.test")
 
     create_stealth.assert_called_once_with("https://example.test")
+
+
+def test_stealth_inherits_standard_proxy_with_explicit_override(monkeypatch):
+    import jev_ultrafast.stealth as stealth
+
+    for name in (
+        "JEV_PROXY",
+        "HTTPS_PROXY",
+        "https_proxy",
+        "ALL_PROXY",
+        "all_proxy",
+        "HTTP_PROXY",
+        "http_proxy",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("HTTP_PROXY", "http://standard-proxy.test:8080")
+    assert stealth.browser_proxy() == "http://standard-proxy.test:8080"
+
+    monkeypatch.setenv("JEV_PROXY", "socks5://explicit-proxy.test:1080")
+    assert stealth.browser_proxy() == "socks5://explicit-proxy.test:1080"
+
+    monkeypatch.setenv("JEV_PROXY", "")
+    assert stealth.browser_proxy() is None
+
+
+def test_stealth_keeps_local_control_traffic_out_of_proxy(monkeypatch):
+    import jev_ultrafast.stealth as stealth
+
+    monkeypatch.setenv("NO_PROXY", "example.test")
+    monkeypatch.setenv("no_proxy", "")
+    stealth.ensure_loopback_proxy_bypass()
+
+    for name in ("NO_PROXY", "no_proxy"):
+        bypass = os.environ[name].split(",")
+        assert all(host in bypass for host in stealth._LOOPBACK_HOSTS)
+    assert os.environ["NO_PROXY"].split(",")[0] == "example.test"
+
+
+def test_new_stealth_browser_replaces_an_unverified_cdp_daemon(monkeypatch):
+    import cloakbrowser
+    from browser_harness import admin
+
+    import jev_ultrafast.stealth as stealth
+
+    previous_browser = stealth._BROWSER
+    launched = Mock()
+    monkeypatch.setattr(stealth, "_BROWSER", None)
+    monkeypatch.setattr(stealth.atexit, "register", Mock())
+    monkeypatch.setattr(cloakbrowser, "launch", Mock(return_value=launched))
+    monkeypatch.setattr(admin, "daemon_alive", Mock(return_value=True))
+    monkeypatch.setattr(admin, "daemon_browser_kind", Mock(return_value="cdp"))
+    restart = Mock()
+    monkeypatch.setattr(admin, "restart_daemon", restart)
+    monkeypatch.setenv("JEV_PROXY", "")
+    monkeypatch.setenv("BU_CDP_URL", "http://old.test")
+    monkeypatch.setenv("NO_PROXY", "")
+    monkeypatch.setenv("no_proxy", "")
+
+    try:
+        assert stealth.ensure_stealth_browser() is launched
+        restart.assert_called_once_with()
+        assert os.environ["BU_CDP_URL"] == stealth.cdp_url()
+    finally:
+        stealth._BROWSER = previous_browser
 
 
 def test_human_input_finds_its_exact_cdp_target():

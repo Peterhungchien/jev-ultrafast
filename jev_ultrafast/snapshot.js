@@ -1,6 +1,7 @@
 (() => {
   if (!document.body) return null;
   const cache = window.__jevFast ||= {ids:new WeakMap(), nodes:new Map(), next:1};
+  cache.custom ||= new WeakSet();
   const identity = e => {
     if (!cache.ids.has(e)) cache.ids.set(e,cache.next++);
     const id=cache.ids.get(e); cache.nodes.set(id,e); return id;
@@ -28,6 +29,7 @@
   const role = e => {
     const explicit=e.getAttribute('role');
     if (roles.includes(explicit)) return explicit;
+    if (cache.custom.has(e)) return 'button';
     if (e.tagName==='BUTTON' || e.tagName==='SUMMARY') return 'button';
     if (e.tagName==='A') return 'link';
     if (e.tagName==='SELECT') return 'combobox';
@@ -41,16 +43,16 @@
     }
     return null;
   };
-  cache.pageKey=()=>[performance.timeOrigin,location.href,scrollX,scrollY,innerWidth,innerHeight,
-    [...document.querySelectorAll('input,textarea,select')].filter(safe)
-      .map(e=>[identity(e),e.value,e.checked,e.selectedIndex,e.disabled,e.readOnly])];
+  cache.fieldState=root=>[...(root||document).querySelectorAll('input,textarea,select')].filter(safe)
+    .map(e=>[identity(e),e.value,e.checked,e.selectedIndex,e.disabled,e.readOnly]);
+  cache.pageKey=()=>[performance.timeOrigin,location.href,scrollX,scrollY,innerWidth,innerHeight];
   cache.guard=e=>{
     if (!e?.isConnected || !visible(e)) return null;
     const scope=e.closest('form,dialog,[role="dialog"],article,li,tr,[role="row"]') || e.parentElement;
     return [identity(e),role(e),name(e),e.value??null,e.checked??null,e.selectedIndex??null,
       e.readOnly??null,e.matches(':disabled'),e.getAttribute('aria-disabled'),
       e.getAttribute('aria-expanded'),e.getAttribute('aria-checked'),e.getAttribute('aria-selected'),
-      e.getAttribute('href'),scope?.innerText?.slice(0,6000)||''];
+      e.getAttribute('href'),scope?.innerText?.slice(0,6000)||'',cache.fieldState(scope)];
   };
   const actions=[];
   for (const e of document.querySelectorAll(selector)) {
@@ -60,6 +62,8 @@
     if (rname==='gridcell' && e.querySelector('button,[role="button"]')) continue;
     const base={node:identity(e),role:rname,label:name(e)||rname,
       rect:{x:r.x,y:r.y,w:r.width,h:r.height}};
+    if (e.tagName==='INPUT') Object.assign(base,{input_type:e.type,
+      name:e.getAttribute('name')||'',placeholder:e.getAttribute('placeholder')||''});
     for (const key of ['checked','selected','expanded']) {
       const value=e.getAttribute('aria-'+key);
       if (value!==null) base[key]=value;
@@ -76,8 +80,37 @@
       const value='value' in e ? String(e.value) :
         e.isContentEditable || rname==='combobox' ? e.innerText.trim() : '';
       actions.push({...base,kind:editable?'fill':'click',value});
-      if (editable) actions.push({...base,kind:'click',value,label:'Open '+base.label});
+      if (editable) {
+        actions.push({...base,kind:'click',value,label:'Open '+base.label});
+        if (e.tagName==='INPUT' && value.trim())
+          actions.push({...base,kind:'submit',value,label:'Submit '+base.label});
+      }
     }
+  }
+  // Modern apps often attach click behavior to plain elements through delegated
+  // handlers. Admit a bounded set only when the element is visibly pointer-like,
+  // has a useful observed label, and is not wrapping or wrapped by a semantic control.
+  let customCount=0;
+  const customSelector='[tabindex]:not([tabindex="-1"]),[onclick],div,span,li';
+  for (const e of document.querySelectorAll(customSelector)) {
+    if (customCount>=80) break;
+    if (!safe(e) || !visible(e) || e.closest('[aria-disabled="true"],[inert]') ||
+        e.matches(selector) || e.closest(selector) || e.querySelector(selector)) continue;
+    const explicit=e.hasAttribute('onclick') ||
+      (e.hasAttribute('tabindex') && e.getAttribute('tabindex')!=='-1');
+    const pointer=getComputedStyle(e).cursor==='pointer';
+    if (!explicit && !pointer) continue;
+    if (!explicit && e.parentElement && e.parentElement!==document.body &&
+        getComputedStyle(e.parentElement).cursor==='pointer') continue;
+    const r=e.getBoundingClientRect(), x=r.x+r.width/2, y=r.y+r.height/2;
+    if (!r.width || !r.height || x<0 || y<0 || x>=innerWidth || y>=innerHeight) continue;
+    const hit=document.elementFromPoint(x,y);
+    if (!hit || (hit!==e && !e.contains(hit))) continue;
+    const label=name(e).replace(/\s+/g,' ').trim().slice(0,240);
+    if (!label) continue;
+    cache.custom.add(e); customCount++;
+    actions.push({node:identity(e),role:'button',label,kind:'click',value:'',
+      rect:{x:r.x,y:r.y,w:r.width,h:r.height}});
   }
   const words=[], walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);
   const range=document.createRange(); let node,length=0;
@@ -95,7 +128,7 @@
   // Compare meaning and identity. Geometry is always resolved and hit-tested just before input.
   const semantics=actions.map(({rect,...action})=>action);
   const marker=[performance.timeOrigin,location.href,scrollX,scrollY,innerWidth,innerHeight,
-    document.title,text,semantics,page_key[6]];
+    document.title,text,semantics,cache.fieldState(document)];
   const omitted_actions=Math.max(0,actions.length-250);
   actions.splice(250);
   actions.forEach((a,i)=>a.id='e'+(i+1));

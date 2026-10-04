@@ -48,7 +48,7 @@ def validate_choice(answer, ids):
 def action_space(actions):
     """One index per observed element; each operation has its own valid target choices."""
     elements, indices, targets, controls = [], {}, {}, {}
-    operations = {"click": "CLICK", "fill": "TYPE_TEXT", "select": "SELECT"}
+    operations = {"click": "CLICK", "fill": "TYPE_TEXT", "select": "SELECT", "submit": "SUBMIT"}
     for action in actions:
         kind = action["kind"]
         if kind not in operations:
@@ -84,6 +84,7 @@ def choose(state, goal, history):
         "CLICK": "Click an element, button, menu option, autocomplete suggestion, or calendar day.",
         "TYPE_TEXT": "Enter or replace text in an editable field. A small LLM will supply the value from the goal.",
         "SELECT": "Select an observed dropdown value.",
+        "SUBMIT": "Submit a populated single-line field by pressing Enter.",
     }
     operations = {key: labels[key] for key in targets}
     operations.update({key: value["label"] for key, value in controls.items()})
@@ -110,7 +111,8 @@ def choose(state, goal, history):
             "page": {k: state[k] for k in ("url", "title", "text")},
             "elements": elements,
             "recent_actions": [
-                {k: h.get(k) for k in ("action", "kind", "text", "page_changed")} for h in history[-10:]
+                {k: h.get(k) for k in ("action", "kind", "text", "page_changed", "relevant_changed")}
+                for h in history[-10:]
             ],
         },
         "questions": questions,
@@ -152,7 +154,11 @@ def choose(state, goal, history):
 def field_context(goal, action, page, history):
     return {
         "goal": goal,
-        "field": {k: action.get(k) for k in ("label", "role", "value")},
+        "field": {
+            k: action.get(k)
+            for k in ("label", "role", "value", "input_type", "name", "placeholder")
+            if action.get(k) is not None
+        },
         "page": {"title": page["title"], "text": page["text"][:6000]},
         "recent_actions": [{k: h.get(k) for k in ("action", "text")} for h in history[-6:]],
     }
@@ -163,37 +169,48 @@ def field_text(context):
     if not key:
         raise ValueError("TYPE_TEXT needs TEXT_MODEL_API_KEY; no text is hardcoded or guessed by the executor.")
     base = os.environ.get("TEXT_MODEL_BASE_URL", "https://api.deepseek.com/v1").rstrip("/")
-    model = os.environ.get("TEXT_MODEL", "deepseek-chat")
+    primary = os.environ.get("TEXT_MODEL", "deepseek-chat")
+    fallback = os.environ.get("TEXT_MODEL_FALLBACK", "").strip()
+    models = [primary] + ([fallback, fallback] if fallback and fallback != primary else [])
     reasoning = {"thinking": {"type": "disabled"}} if "api.deepseek.com/" in base else {"reasoning": {"effort": "low"}}
     if os.environ.get("TEXT_MODEL_REASONING") == "none":
         reasoning = {"reasoning": {"enabled": False}}
     started = time.perf_counter()
-    result = post_json(
-        base + "/chat/completions",
-        key,
-        {
+    attempts = []
+    for model in models:
+        attempt_started = time.perf_counter()
+        result = post_json(
+            base + "/chat/completions",
+            key,
+            {
+                "model": model,
+                "max_tokens": 1024,
+                "temperature": 0,
+                "response_format": {"type": "json_object"},
+                **reasoning,
+                "messages": [
+                    {"role": "system", "content": TEXT_VALUE},
+                    {"role": "user", "content": json.dumps(context, ensure_ascii=False)},
+                ],
+            },
+        )
+        attempts.append({
             "model": model,
-            "max_tokens": 1024,
-            "response_format": {"type": "json_object"},
-            **reasoning,
-            "messages": [
-                {"role": "system", "content": TEXT_VALUE},
-                {
-                    "role": "user",
-                    "content": json.dumps(context),
-                },
-            ],
-        },
-    )
-    try:
-        output = json.loads(result["choices"][0]["message"]["content"])
-        value = output["text"]
-        if set(output) != {"text"} or not isinstance(value, str) or not value.strip() or len(value) > 2000:
-            raise ValueError()
-    except (ValueError, KeyError, TypeError):
-        raise ValueError("Text helper returned no valid field value; nothing typed.") from None
-    return value, {
-        "model": model,
-        "latency_ms": round((time.perf_counter() - started) * 1000),
-        "usage": result.get("usage", {}),
-    }
+            "latency_ms": round((time.perf_counter() - attempt_started) * 1000),
+            "usage": result.get("usage", {}),
+        })
+        try:
+            output = json.loads(result["choices"][0]["message"]["content"])
+            value = output["text"]
+            if set(output) != {"text"} or not isinstance(value, str) or not value.strip() or len(value) > 2000:
+                raise ValueError()
+        except (ValueError, KeyError, TypeError):
+            continue
+        return value, {
+            "model": model,
+            "latency_ms": round((time.perf_counter() - started) * 1000),
+            "usage": result.get("usage", {}),
+            "calls": len(attempts),
+            "attempts": attempts,
+        }
+    raise ValueError("Text helper returned no valid field value; nothing typed.") from None
