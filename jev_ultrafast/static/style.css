@@ -127,6 +127,22 @@ form {
   color: #77776e;
   margin-bottom: 10px;
 }
+.url-row {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 0 0 10px;
+  border-bottom: 1px solid #eceee7;
+}
+.url-row label {
+  color: #77776e;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
 .task-row {
   display: flex;
   align-items: center;
@@ -144,6 +160,7 @@ select {
   font-size: 12px;
 }
 input[type="text"],
+input[type="url"],
 #goal {
   width: 100%;
   min-width: 0;

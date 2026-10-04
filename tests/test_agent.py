@@ -408,6 +408,75 @@ def test_parallel_worker_stderr_has_a_distinct_prefix():
     assert not ready.is_set()
 
 
+def test_demo_reset_accepts_a_custom_url(monkeypatch):
+    import jev_ultrafast.demo as demo
+
+    agent = Mock()
+    agent.state = {}
+    agent.snapshot.return_value = {
+        "page": None,
+        "status": "ready",
+        "history": [],
+        "decision": None,
+    }
+    constructor = Mock(return_value=agent)
+    monkeypatch.setattr(demo, "AGENT", None)
+    monkeypatch.setattr(demo, "Agent", constructor)
+
+    demo.command("reset", {
+        "scenario": "flights",
+        "url": "  https://example.test/custom?q=1  ",
+        "goal": "Inspect the custom page.",
+    })
+
+    constructor.assert_called_once_with(
+        "https://example.test/custom?q=1",
+        "Inspect the custom page.",
+        screenshots=True,
+        record_dir=None,
+    )
+    assert agent.state == {
+        "scenario": "flights",
+        "start_url": "https://example.test/custom?q=1",
+    }
+
+
+def test_demo_reset_keeps_scenario_url_when_custom_url_is_omitted(monkeypatch):
+    import jev_ultrafast.demo as demo
+
+    agent = Mock(state={})
+    agent.snapshot.return_value = {
+        "page": None,
+        "status": "ready",
+        "history": [],
+        "decision": None,
+    }
+    constructor = Mock(return_value=agent)
+    monkeypatch.setattr(demo, "AGENT", None)
+    monkeypatch.setattr(demo, "Agent", constructor)
+
+    demo.command("reset", {"scenario": "research", "goal": "Read the article."})
+
+    assert constructor.call_args.args[0] == f"{demo.ORIGIN}/fixture.html?scenario=research"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "",
+        "file:///tmp/private",
+        "javascript:alert(1)",
+        "https://user:secret@example.test/",
+        "https://example.test:99999/",
+    ],
+)
+def test_demo_rejects_unsafe_or_invalid_custom_urls(url):
+    import jev_ultrafast.demo as demo
+
+    with pytest.raises(ValueError):
+        demo.resolve_demo_url(url, "flights")
+
+
 @pytest.mark.parametrize("response", [{"exceptionDetails": {}}, {"result": {}}])
 def test_interrupted_dropdown_mutation_cannot_be_retried_as_stale(monkeypatch, response):
     import jev_ultrafast.browser as browser

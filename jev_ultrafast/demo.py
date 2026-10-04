@@ -18,6 +18,33 @@ ORIGIN = f"http://127.0.0.1:{PORT}"
 TOKEN = secrets.token_urlsafe(32)
 LOCK = threading.Lock()
 AGENT = None
+SCENARIOS = {"travel", "research", "flights"}
+FLIGHTS_URL = "https://www.google.com/travel/flights?hl=en"
+
+
+def default_demo_url(scenario):
+    return FLIGHTS_URL if scenario == "flights" else f"{ORIGIN}/fixture.html?scenario={scenario}"
+
+
+def resolve_demo_url(value, scenario):
+    """Return a validated custom URL, preserving scenario defaults when omitted."""
+    if value is None:
+        return default_demo_url(scenario)
+    if not isinstance(value, str):
+        raise ValueError("Demo URL must be text")
+    value = value.strip()
+    if not value or len(value) > 2048:
+        raise ValueError("Enter a URL between 1 and 2,048 characters")
+    parsed = urlparse(value)
+    try:
+        hostname, port = parsed.hostname, parsed.port
+    except ValueError:
+        raise ValueError("Enter a valid HTTP or HTTPS URL") from None
+    if parsed.scheme not in {"http", "https"} or not hostname or port is not None and not 0 < port < 65536:
+        raise ValueError("Enter a valid HTTP or HTTPS URL")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("Demo URLs cannot contain credentials")
+    return value
 
 
 def load_environment():
@@ -44,22 +71,25 @@ def close_browser():
 def command(name, body):
     global AGENT
     if name == "reset":
+        if not isinstance(body, dict):
+            raise ValueError("Invalid request")
         scenario = body.get("scenario", "flights")
-        if scenario not in {"travel", "research", "flights"}:
+        if scenario not in SCENARIOS:
             raise ValueError("Unknown demo scenario")
-        goal = body.get("goal", "").strip()
+        raw_goal = body.get("goal", "")
+        goal = raw_goal.strip() if isinstance(raw_goal, str) else ""
         if not goal or len(goal) > 2000:
             raise ValueError("Enter 1–2,000 characters")
+        url = resolve_demo_url(body.get("url"), scenario)
         close_browser()
         AGENT = Agent(
-            "https://www.google.com/travel/flights?hl=en"
-            if scenario == "flights"
-            else f"{ORIGIN}/fixture.html?scenario={scenario}",
+            url,
             goal,
             screenshots=True,
             record_dir=Path.cwd() / "artifacts" / "frames" if body.get("record") else None,
         )
         AGENT.state["scenario"] = scenario
+        AGENT.state["start_url"] = url
     else:
         if AGENT is None:
             raise ValueError("Start a demo first")

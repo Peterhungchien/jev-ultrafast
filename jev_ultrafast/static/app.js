@@ -9,6 +9,11 @@ const goals = {
   research:
     "Open the article about using finite choices to control browser agents.",
 };
+const urls = {
+  flights: "https://www.google.com/travel/flights?hl=en",
+  travel: `${window.location.origin}/fixture.html?scenario=travel`,
+  research: `${window.location.origin}/fixture.html?scenario=research`,
+};
 const escape = (value) =>
   String(value ?? "").replace(
     /[&<>"']/g,
@@ -34,6 +39,7 @@ function controls() {
   const live = state?.page && !["done", "blocked"].includes(state.status);
   $("start").disabled = busy;
   $("scenario").disabled = busy;
+  $("target-url").disabled = busy;
   $("goal").disabled = busy;
   $("choose").disabled = busy || !live;
   $("execute").disabled = busy || !state?.decision || !live;
@@ -150,12 +156,18 @@ $("task-form").addEventListener("submit", (event) => {
   automatic = false;
   perform(
     () =>
-      call("reset", { scenario: $("scenario").value, goal: $("goal").value }),
+      call("reset", {
+        scenario: $("scenario").value,
+        url: $("target-url").value,
+        goal: $("goal").value,
+      }),
     "Opening a fresh browser…",
   );
 });
 $("scenario").addEventListener("change", () => {
-  $("goal").value = goals[$("scenario").value];
+  const scenario = $("scenario").value;
+  $("target-url").value = urls[scenario];
+  $("goal").value = goals[scenario];
 });
 $("choose").addEventListener("click", () =>
   perform(() => call("predict"), "Jev is comparing the actions…"),

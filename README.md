@@ -72,9 +72,10 @@ cp .env.example .env
 uv run jev
 ```
 
-Open **http://127.0.0.1:8766** and click **Start demo → Run automatically**. The inspector shows
-numbered elements, operation probabilities, target probabilities, and executed actions.
-**Choose next** pauses before execution.
+Open **http://127.0.0.1:8766**, choose a preset or enter any HTTP(S) URL in **Open URL**, then
+click **Start demo → Run automatically**. Changing the preset restores its default URL and goal. The
+inspector shows numbered elements, operation probabilities, target probabilities, and executed
+actions. **Choose next** pauses before execution.
 
 ### Decision backend — pick one
 
