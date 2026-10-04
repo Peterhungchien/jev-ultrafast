@@ -243,12 +243,62 @@ def test_executor_rejects_a_stale_page_before_browser_input(monkeypatch):
     import jev_ultrafast.browser as browser
 
     b = browser.Browser.__new__(browser.Browser)
+    b.input_dispatch = None
+    b.input_dispatch_factory = None
     b.fresh = Mock(return_value=False)
     operation = Mock()
     monkeypatch.setattr(browser, "browser_operation", operation)
     with pytest.raises(StalePage):
         b.act(page()["actions"][0], page(), "book")
     operation.assert_not_called()
+
+
+def test_humanized_pointer_rechecks_target_before_mouse_down(monkeypatch):
+    import jev_ultrafast.browser as browser
+
+    evaluations = iter([{"x": 50, "y": 25}, None])
+
+    def cdp(method, **_params):
+        assert method == "Runtime.evaluate"
+        return {"result": {"value": next(evaluations)}}
+
+    input_dispatch = Mock()
+    monkeypatch.setattr(browser, "cdp", cdp)
+    with pytest.raises(StalePage, match="pointer movement"):
+        browser_operation({
+            "operation": "act",
+            "session": "test",
+            "action": {"id": "e1", "kind": "click", "node": 1},
+            "input": input_dispatch,
+        })
+    input_dispatch.move.assert_called_once_with(50, 25)
+    input_dispatch.click.assert_not_called()
+
+
+def test_browser_lazily_builds_input_dispatch_for_exact_target(monkeypatch):
+    import jev_ultrafast.browser as browser
+
+    b = browser.Browser.__new__(browser.Browser)
+    b.input_dispatch = None
+    b.target = "target-7"
+    b.session = "session-7"
+    b.fresh = Mock(return_value=True)
+    worker = Mock()
+    b.input_dispatch_factory = Mock(return_value=worker)
+    operation = Mock(return_value={"executed": "e1"})
+    monkeypatch.setattr(browser, "browser_operation", operation)
+
+    action = {"id": "e1", "kind": "click", "node": 1}
+    b.act(action, page())
+
+    b.input_dispatch_factory.assert_called_once_with("target-7")
+    operation.assert_called_once_with({
+        "operation": "act",
+        "session": "session-7",
+        "action": action,
+        "text": None,
+        "input": worker,
+    })
 
 
 @pytest.mark.parametrize("response", [{"exceptionDetails": {}}, {"result": {}}])

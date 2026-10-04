@@ -18,8 +18,10 @@ class StalePage(ValueError):
 
 
 class Browser:
-    def __init__(self, url):
+    def __init__(self, url, input_dispatch=None, input_dispatch_factory=None):
         ensure_daemon()
+        self.input_dispatch = input_dispatch
+        self.input_dispatch_factory = input_dispatch_factory
         self.target = cdp("Target.createTarget", url="about:blank", background=True)["targetId"]
         self.session = cdp("Target.attachToTarget", targetId=self.target, flatten=True)["sessionId"]
         self.call("Emulation.setDeviceMetricsOverride", width=1120, height=780, deviceScaleFactor=1, mobile=False)
@@ -98,15 +100,25 @@ class Browser:
         return self.evaluate(MARKER) == page["marker"]
 
     def act(self, action, page, text=None):
+        if self.input_dispatch is None and self.input_dispatch_factory is not None:
+            # Attach lazily so read-only runs avoid a second input client. The
+            # factory receives only the code-owned CDP target ID.
+            self.input_dispatch = self.input_dispatch_factory(self.target)
         if not self.fresh(page, action):
             raise StalePage("Page changed since this decision. Observe again.")
         if action["kind"] == "wait":
             time.sleep(0.1)
-        result = browser_operation({"operation": "act", "session": self.session, "action": action, "text": text})
+        result = browser_operation(
+            {"operation": "act", "session": self.session, "action": action, "text": text, "input": self.input_dispatch}
+        )
         self.after_input = action if action["kind"] != "wait" else None
         return result
 
     def close(self):
+        input_dispatch = getattr(self, "input_dispatch", None)
+        if input_dispatch is not None and hasattr(input_dispatch, "stop"):
+            input_dispatch.stop()
+            self.input_dispatch = None
         if self.target:
             cdp("Target.closeTarget", targetId=self.target)
             self.target = None
@@ -135,54 +147,72 @@ def browser_operation(request):
     if operation == "act":
         action = request["action"]
         kind = action["kind"]
+        input_dispatch = request.get("input")
         if kind == "scroll":
-            call("Input.dispatchMouseEvent", type="mouseWheel", x=550, y=650, deltaX=0, deltaY=action["delta"])
+            if input_dispatch is not None:
+                input_dispatch.wheel(action["delta"])
+            else:
+                call("Input.dispatchMouseEvent", type="mouseWheel", x=550, y=650, deltaX=0, deltaY=action["delta"])
         elif kind != "wait":
             if type(action["node"]) is not int:
                 raise ValueError("Invalid observed node")
             # Code-owned node IDs refer to actual observed elements, never model-generated selectors.
-            target = evaluate("""(action => {
-              const e=window.__jevFast?.nodes.get(action.node);
-              if (!e?.isConnected || e.matches(':disabled') || e.closest('[aria-disabled="true"],[inert]') ||
-                  !e.checkVisibility({checkOpacity:true,checkVisibilityCSS:true})) return null;
-              if (action.kind==='fill' && (e.readOnly || e.getAttribute('aria-readonly')==='true')) return null;
-              const r=e.getBoundingClientRect(), x=r.x+r.width/2, y=r.y+r.height/2;
-              if (!r.width || !r.height || x<0 || y<0 || x>=innerWidth || y>=innerHeight) return null;
-              if (!e.contains(document.elementFromPoint(x,y))) return null;
-              if (action.kind==='select') {
-                if (e.tagName!=='SELECT' || ![...e.options].some(o=>o.value===action.value &&
-                    !o.disabled && !o.closest('optgroup[disabled]'))) return null;
-                e.value=action.value;
-                e.dispatchEvent(new Event('input',{bubbles:true}));
-                e.dispatchEvent(new Event('change',{bubbles:true}));
-              }
-              return {x,y};
-            })(""" + json.dumps(action) + ")")
+            def resolve_target():
+                return evaluate("""(action => {
+                  const e=window.__jevFast?.nodes.get(action.node);
+                  if (!e?.isConnected || e.matches(':disabled') || e.closest('[aria-disabled="true"],[inert]') ||
+                      !e.checkVisibility({checkOpacity:true,checkVisibilityCSS:true})) return null;
+                  if (action.kind==='fill' && (e.readOnly || e.getAttribute('aria-readonly')==='true')) return null;
+                  const r=e.getBoundingClientRect(), x=r.x+r.width/2, y=r.y+r.height/2;
+                  if (!r.width || !r.height || x<0 || y<0 || x>=innerWidth || y>=innerHeight) return null;
+                  if (!e.contains(document.elementFromPoint(x,y))) return null;
+                  if (action.kind==='select') {
+                    if (e.tagName!=='SELECT' || ![...e.options].some(o=>o.value===action.value &&
+                        !o.disabled && !o.closest('optgroup[disabled]'))) return null;
+                    e.value=action.value;
+                    e.dispatchEvent(new Event('input',{bubbles:true}));
+                    e.dispatchEvent(new Event('change',{bubbles:true}));
+                  }
+                  return {x,y};
+                })(""" + json.dumps(action) + ")")
+
+            target = resolve_target()
             if target is None:
                 if kind == "select":
                     raise RuntimeError("Dropdown execution was not confirmed; inspect before retrying.")
                 raise StalePage("Target changed or is covered. Observe again.")
             if kind != "select":
                 x, y = target["x"], target["y"]
-                for event in ("mousePressed", "mouseReleased"):
-                    call("Input.dispatchMouseEvent", type=event, x=x, y=y, button="left", clickCount=1)
-                if kind == "fill":
-                    call(
-                        "Input.dispatchKeyEvent",
-                        type="keyDown",
-                        key="a",
-                        code="KeyA",
-                        modifiers=4 if sys.platform == "darwin" else 2,
-                        commands=["selectAll"],
-                    )
-                    call(
-                        "Input.dispatchKeyEvent",
-                        type="keyUp",
-                        key="a",
-                        code="KeyA",
-                        modifiers=4 if sys.platform == "darwin" else 2,
-                    )
-                    call("Input.insertText", text=request["text"])
+                if input_dispatch is not None:
+                    # Moving a real pointer can itself trigger hover layout. Recheck the
+                    # observed node before mouse-down so the curve cannot land elsewhere.
+                    input_dispatch.move(x, y)
+                    if resolve_target() != target:
+                        raise StalePage("Target moved or became covered during pointer movement. Observe again.")
+                    input_dispatch.click()
+                    if kind == "fill":
+                        input_dispatch.select_all()
+                        input_dispatch.type_text(request["text"])
+                else:
+                    for event in ("mousePressed", "mouseReleased"):
+                        call("Input.dispatchMouseEvent", type=event, x=x, y=y, button="left", clickCount=1)
+                    if kind == "fill":
+                        call(
+                            "Input.dispatchKeyEvent",
+                            type="keyDown",
+                            key="a",
+                            code="KeyA",
+                            modifiers=4 if sys.platform == "darwin" else 2,
+                            commands=["selectAll"],
+                        )
+                        call(
+                            "Input.dispatchKeyEvent",
+                            type="keyUp",
+                            key="a",
+                            code="KeyA",
+                            modifiers=4 if sys.platform == "darwin" else 2,
+                        )
+                        call("Input.insertText", text=request["text"])
         return {"executed": action["id"]}
 
     info = evaluate(READ_STATE)
