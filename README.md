@@ -211,8 +211,15 @@ intentionally single-agent and serializes its commands.
 - **Wait for useful state.** After typing into a combobox, wait for visible suggestions, capped at
   200 ms. Other interactions get at most two animation frames or 50 ms. These reads happen after
   execution is logged.
-- **Keep hidden tabs rendering.** Focus emulation prevents background animation throttling without
-  switching Chrome's visible tab.
+- **Keep hidden tabs rendering.** Focus emulation keeps owned tabs rendering without switching
+  Chrome's visible tab. Stealth launch disables window-occlusion backgrounding, renderer
+  backgrounding, and background timer throttling. Headed stealth also disables frame-rate
+  limiting: on an inactive niri/Wayland workspace, the other flags alone left each humanized
+  pointer step waiting about one second for Chromium's acknowledgement. The additional flag
+  restored animation frames and normal input timing without raising the window. See the
+  [focus-stall investigation](docs/focus-stall.md) for evidence and scope.
+- **Allow slow navigation to settle.** Read-only observations retry stale documents with bounded
+  backoff for up to 30 seconds; executed browser mutations are never replayed.
 - **Send visible text.** Offscreen article bodies and footers do not fill the model context.
 - **Reuse an interrupted text request.** A generated value survives a stale-page retry only if the
   entire text-helper input is unchanged.

@@ -1,0 +1,105 @@
+import json
+import os
+import subprocess
+from pathlib import Path
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+os.environ.update(BU_NAME='jev-focus-check', JEV_CDP_PORT='19342', JEV_HEADLESS='0', JEV_PROXY='', JEV_HUMANIZE='1')
+from browser_harness import admin
+from jev_ultrafast import browser as executor
+from jev_ultrafast.stealth import create_stealth_browser, _shutdown
+if os.environ.get('FRAME_PROBE'):
+    import cloakbrowser
+    probe_launch = cloakbrowser.launch
+    def frame_launch(**kwargs):
+        kwargs['args'] += ['--disable-frame-rate-limit']
+        return probe_launch(**kwargs)
+    cloakbrowser.launch = frame_launch
+baseline = os.environ.get('FOCUS_BASELINE') == '1'
+if baseline:
+    import cloakbrowser
+    original_launch = cloakbrowser.launch
+    def baseline_launch(**kwargs):
+        kwargs['args'] = [arg for arg in kwargs['args'] if not arg.startswith('--disable-background') and arg not in {'--disable-renderer-backgrounding', '--disable-frame-rate-limit'}]
+        return original_launch(**kwargs)
+    cloakbrowser.launch = baseline_launch
+
+HTML = b'''<!doctype html><title>Jev focus regression</title>
+<label>Query<input aria-label="Query"></label>
+<button onclick="document.querySelector('p').textContent='Confirmed '+document.querySelector('input').value">Confirm</button><p>Waiting</p>
+<script>window.framesSeen=0;function frame(){framesSeen++;requestAnimationFrame(frame)}requestAnimationFrame(frame)</script>'''
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200); self.send_header('Content-Type','text/html'); self.end_headers(); self.wfile.write(HTML)
+    def log_message(self, *args): pass
+server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+threading.Thread(target=server.serve_forever, daemon=True).start()
+original = executor.cdp
+window_id = None
+native_id = None
+def niri(query):
+    return json.loads(subprocess.check_output(['niri', 'msg', '-j', query]))
+existing_windows = {w['id'] for w in niri('windows')}
+original_workspace = next(w['id'] for w in niri('workspaces') if w['is_focused'])
+results = []
+def assert_background():
+    window = next(w for w in niri('windows') if w['id'] == native_id)
+    workspace = next(w for w in niri('workspaces') if w['id'] == window['workspace_id'])
+    assert not window['is_focused'] and not workspace['is_active'], (window, workspace)
+def timed(label, fn):
+    start = time.monotonic(); result = fn()
+    results.append({'check':label,'seconds':round(time.monotonic()-start,3)})
+    print(json.dumps(results[-1]), flush=True)
+    return result
+
+def cdp(method, **params):
+    global window_id, native_id
+    result = original(method, **params)
+    if method == 'Target.createTarget':
+        window_id = original('Browser.getWindowForTarget', targetId=result['targetId'])['windowId']
+        deadline = time.monotonic() + 5
+        while True:
+            new_windows = [w for w in niri('windows') if w['id'] not in existing_windows]
+            if len(new_windows) == 1:
+                native_id = new_windows[0]['id']
+                break
+            if time.monotonic() >= deadline:
+                raise AssertionError('Could not uniquely identify test browser window')
+            time.sleep(0.05)
+        spaces = niri('workspaces')
+        empty = next(w for w in spaces if w['active_window_id'] is None and w['id'] != original_workspace)
+        subprocess.run(['niri','msg','action','move-window-to-workspace','--window-id',str(native_id),'--focus','false',str(empty['idx'])], check=True, stdout=subprocess.DEVNULL)
+        original_space = next(w for w in niri('workspaces') if w['id'] == original_workspace)
+        subprocess.run(['niri','msg','action','focus-workspace',str(original_space['idx'])],check=True,stdout=subprocess.DEVNULL)
+        time.sleep(0.5)
+        assert_background()
+        print('Owned window unfocused on inactive workspace before initial navigation', flush=True)
+    return result
+executor.cdp = cdp
+browser = None
+if os.environ.get('MOUSE_PROBE'):
+    exec(compile(Path('/tmp/jev-mouse-probe-hook.py').read_text(), '/tmp/jev-mouse-probe-hook.py', 'exec'))
+try:
+    browser = timed('initial navigation on inactive workspace', lambda: create_stealth_browser(f'http://127.0.0.1:{server.server_port}/'))
+    page = timed('initial observation', lambda: browser.observe(screenshot=False))
+    for kind, label, text in [('fill','Query','focus-check'), ('click','Confirm',None)]:
+        action = next(a for a in page['actions'] if a['kind']==kind and a['label']==label)
+        timed(f'humanized {kind}', lambda: browser.act(action, page, text=text))
+        page = timed(f'post-{kind} observation', lambda: browser.observe(screenshot=False))
+        assert_background()
+    assert browser.evaluate("document.querySelector('p').textContent") == 'Confirmed focus-check'
+    frame_start = browser.evaluate('window.framesSeen')
+    time.sleep(0.5)
+    frame_end = browser.evaluate('window.framesSeen')
+    assert_background()
+    if os.environ.get('EXPECT_FRAMES'):
+        assert frame_end > frame_start, (frame_start, frame_end)
+        assert all(check['seconds'] < 10 for check in results), results
+    print(json.dumps({'outcome':'PASS for navigation/input/observations', 'baseline_without_flags':baseline,'window_state':'unfocused on inactive workspace','raf_frames_in_half_second':frame_end-frame_start,'checks':results}), flush=True)
+finally:
+    if browser: browser.close()
+    _shutdown()
+    subprocess.run(['uv', 'run', 'browser-harness', '--reload'], check=False)
+    server.shutdown()

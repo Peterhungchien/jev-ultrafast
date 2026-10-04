@@ -90,14 +90,25 @@ def ensure_stealth_browser():
                 raise RuntimeError(_STEALTH_INSTALL) from None
 
             proxy = browser_proxy()
+            headless = _env_flag("JEV_HEADLESS", default=False)
             _BROWSER = launch(
-                headless=_env_flag("JEV_HEADLESS", default=False),
+                headless=headless,
                 humanize=humanize_enabled(),
                 **({"proxy": proxy} if proxy else {}),
                 **({"geoip": True} if os.environ.get("JEV_GEOIP", "").lower() in {"1", "true", "yes"} else {}),
                 args=[
                     f"--remote-debugging-port={cdp_port()}",
                     "--remote-debugging-address=127.0.0.1",
+                    # Tab focus emulation alone does not prevent OS-window
+                    # occlusion from starving the read-only rAF/timer waits.
+                    "--disable-backgrounding-occluded-windows",
+                    "--disable-renderer-backgrounding",
+                    "--disable-background-timer-throttling",
+                    # An offscreen Wayland window can stop display begin frames
+                    # despite the backgrounding flags above. Each mouse-move ACK
+                    # then costs ~1s, multiplied across the humanized curve.
+                    # Use a display-independent begin-frame source in headed mode.
+                    *([] if headless else ["--disable-frame-rate-limit"]),
                 ],
             )
             atexit.register(_shutdown)

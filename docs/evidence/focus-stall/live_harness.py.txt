@@ -1,0 +1,83 @@
+import faulthandler
+import json
+import os
+import subprocess
+import time
+from pathlib import Path
+os.environ.update(BU_NAME='jev-agent-focus-check', JEV_CDP_PORT='19343', JEV_HEADLESS='0', JEV_HUMANIZE='1')
+from jev_ultrafast import agent as loop
+from jev_ultrafast import browser as executor
+from jev_ultrafast.stealth import _shutdown
+
+start=time.monotonic()
+events=[]
+def log(stage, **data):
+    event={'seconds':round(time.monotonic()-start,3),'stage':stage,**data}
+    events.append(event)
+    print(json.dumps(event),flush=True)
+    Path('/tmp/jev-agent-focus-events.json').write_text(json.dumps(events,indent=2))
+def niri(query):
+    return json.loads(subprocess.check_output(['niri','msg','-j',query]))
+existing={w['id'] for w in niri('windows')}
+original_workspace=next(w['id'] for w in niri('workspaces') if w['is_focused'])
+native_id=None
+original_cdp=executor.cdp
+
+def background_status():
+    window=next(w for w in niri('windows') if w['id']==native_id)
+    space=next(w for w in niri('workspaces') if w['id']==window['workspace_id'])
+    return {'focused':window['is_focused'],'workspace_active':space['is_active']}
+def cdp(method,**params):
+    global native_id
+    result=original_cdp(method,**params)
+    if method=='Target.createTarget':
+        deadline=time.monotonic()+5
+        while True:
+            new=[w for w in niri('windows') if w['id'] not in existing]
+            if len(new)==1:
+                native_id=new[0]['id'];break
+            if time.monotonic()>deadline:raise RuntimeError('Cannot uniquely identify test window')
+            time.sleep(.05)
+        spaces=niri('workspaces')
+        empty=next(w for w in spaces if w['active_window_id'] is None and w['id']!=original_workspace)
+        subprocess.run(['niri','msg','action','move-window-to-workspace','--window-id',str(native_id),'--focus','false',str(empty['idx'])],check=True,stdout=subprocess.DEVNULL)
+        original=next(w for w in niri('workspaces') if w['id']==original_workspace)
+        subprocess.run(['niri','msg','action','focus-workspace',str(original['idx'])],check=True,stdout=subprocess.DEVNULL)
+        time.sleep(.5)
+        log('background-window',**background_status())
+    return result
+executor.cdp=cdp
+
+def instrument(obj,name):
+    original=getattr(obj,name)
+    def wrapped(*args,**kwargs):
+        begin=time.monotonic();log(name+'-start')
+        try:
+            result=original(*args,**kwargs)
+        except Exception as exc:
+            log(name+'-error',error=type(exc).__name__,message=str(exc),duration=round(time.monotonic()-begin,3));raise
+        details={}
+        if name=='choose':details={k:result[k] for k in ('operation','target','latency_ms')}
+        log(name+'-end',duration=round(time.monotonic()-begin,3),**details)
+        return result
+    setattr(obj,name,wrapped)
+for name in ['observe','fresh','act']:instrument(executor.Browser,name)
+for name in ['choose','field_text']:instrument(loop,name)
+faulthandler.dump_traceback_later(40,repeat=True)
+agent=None
+try:
+    log('agent-init-start')
+    agent=loop.Agent('https://careers.hitachi.com/', 'Find job listings in Shanghai. Search using the location filter and stop when matching Shanghai job results are visible.')
+    log('agent-init-end',url=agent.state['page']['url'])
+    for i in range(6):
+        log('tick-start',tick=i+1,**background_status())
+        state=agent.command('tick')
+        log('tick-end',tick=i+1,status=state['status'],decisions=len(state['decisions']),actions=len(state['history']),url=state['page']['url'],**background_status())
+        if state['status'] in {'done','blocked'}:break
+    Path('/tmp/jev-agent-focus-state.json').write_text(json.dumps(agent.snapshot(),indent=2))
+    log('run-end',status=agent.state['status'],decisions=len(agent.state['decisions']),actions=len(agent.state['history']))
+finally:
+    faulthandler.cancel_dump_traceback_later()
+    if agent:agent.close()
+    _shutdown()
+    subprocess.run(['uv','run','browser-harness','--reload'],check=False)

@@ -1,0 +1,81 @@
+{"seconds": 0.019, "stage": "agent-init-start"}
+{"seconds": 1.769, "stage": "background-window", "focused": false, "workspace_active": false}
+{"seconds": 4.756, "stage": "observe-start"}
+{"seconds": 4.77, "stage": "observe-end", "duration": 0.014}
+{"seconds": 4.77, "stage": "agent-init-end", "url": "https://careers.hitachi.com/"}
+{"seconds": 4.793, "stage": "tick-start", "tick": 1, "focused": false, "workspace_active": false}
+{"seconds": 4.793, "stage": "fresh-start"}
+{"seconds": 4.806, "stage": "fresh-end", "duration": 0.013}
+{"seconds": 4.806, "stage": "choose-start"}
+{"seconds": 5.592, "stage": "choose-end", "duration": 0.786, "operation": "CLICK", "target": "6", "latency_ms": 786}
+{"seconds": 5.593, "stage": "act-start"}
+{"seconds": 5.947, "stage": "fresh-start"}
+{"seconds": 5.948, "stage": "fresh-end", "duration": 0.001}
+{"seconds": 6.325, "stage": "act-end", "duration": 0.732}
+{"seconds": 6.325, "stage": "observe-start"}
+{"seconds": 7.251, "stage": "observe-end", "duration": 0.925}
+{"seconds": 7.273, "stage": "tick-end", "tick": 1, "status": "ready", "decisions": 1, "actions": 1, "url": "https://careers.hitachi.com/jobs", "focused": false, "workspace_active": false}
+{"seconds": 7.296, "stage": "tick-start", "tick": 2, "focused": false, "workspace_active": false}
+{"seconds": 7.296, "stage": "fresh-start"}
+{"seconds": 7.316, "stage": "fresh-end", "duration": 0.02}
+{"seconds": 7.316, "stage": "choose-start"}
+{"seconds": 7.596, "stage": "choose-end", "duration": 0.28, "operation": "TYPE_TEXT", "target": "9", "latency_ms": 279}
+{"seconds": 7.596, "stage": "fresh-start"}
+{"seconds": 7.608, "stage": "fresh-end", "duration": 0.012}
+{"seconds": 7.609, "stage": "observe-start"}
+{"seconds": 7.62, "stage": "observe-end", "duration": 0.011}
+{"seconds": 7.64, "stage": "tick-end", "tick": 2, "status": "ready", "decisions": 2, "actions": 1, "url": "https://careers.hitachi.com/jobs", "focused": false, "workspace_active": false}
+{"seconds": 7.659, "stage": "tick-start", "tick": 3, "focused": false, "workspace_active": false}
+{"seconds": 7.659, "stage": "fresh-start"}
+{"seconds": 7.67, "stage": "fresh-end", "duration": 0.011}
+{"seconds": 7.671, "stage": "choose-start"}
+{"seconds": 8.059, "stage": "choose-end", "duration": 0.388, "operation": "TYPE_TEXT", "target": "9", "latency_ms": 388}
+{"seconds": 8.059, "stage": "fresh-start"}
+{"seconds": 8.07, "stage": "fresh-end", "duration": 0.011}
+{"seconds": 8.071, "stage": "field_text-start"}
+{"seconds": 19.361, "stage": "field_text-end", "duration": 11.291}
+{"seconds": 19.361, "stage": "act-start"}
+{"seconds": 19.361, "stage": "fresh-start"}
+{"seconds": 19.363, "stage": "fresh-end", "duration": 0.002}
+{"seconds": 22.085, "stage": "act-end", "duration": 2.723}
+{"seconds": 22.085, "stage": "observe-start"}
+{"seconds": 22.298, "stage": "observe-end", "duration": 0.213}
+{"seconds": 22.318, "stage": "tick-end", "tick": 3, "status": "ready", "decisions": 3, "actions": 2, "url": "https://careers.hitachi.com/jobs", "focused": false, "workspace_active": false}
+{"seconds": 22.336, "stage": "tick-start", "tick": 4, "focused": false, "workspace_active": false}
+{"seconds": 22.337, "stage": "fresh-start"}
+{"seconds": 22.347, "stage": "fresh-end", "duration": 0.01}
+{"seconds": 22.347, "stage": "choose-start"}
+{"seconds": 23.456, "stage": "choose-end", "duration": 1.109, "operation": "CLICK", "target": "9", "latency_ms": 1109}
+{"seconds": 23.456, "stage": "act-start"}
+{"seconds": 23.456, "stage": "fresh-start"}
+{"seconds": 23.458, "stage": "fresh-end", "duration": 0.002}
+{"seconds": 24.147, "stage": "act-end", "duration": 0.69}
+{"seconds": 24.147, "stage": "observe-start"}
+{"seconds": 24.194, "stage": "observe-end", "duration": 0.047}
+{"seconds": 24.213, "stage": "tick-end", "tick": 4, "status": "ready", "decisions": 4, "actions": 3, "url": "https://careers.hitachi.com/jobs", "focused": false, "workspace_active": false}
+{"seconds": 24.233, "stage": "tick-start", "tick": 5, "focused": false, "workspace_active": false}
+{"seconds": 24.233, "stage": "fresh-start"}
+{"seconds": 24.244, "stage": "fresh-end", "duration": 0.01}
+{"seconds": 24.244, "stage": "choose-start"}
+{"seconds": 24.687, "stage": "choose-end", "duration": 0.443, "operation": "CLICK", "target": "9", "latency_ms": 443}
+{"seconds": 24.687, "stage": "act-start"}
+{"seconds": 24.687, "stage": "fresh-start"}
+{"seconds": 24.689, "stage": "fresh-end", "duration": 0.002}
+{"seconds": 24.996, "stage": "act-end", "duration": 0.309}
+{"seconds": 24.997, "stage": "observe-start"}
+{"seconds": 25.034, "stage": "observe-end", "duration": 0.037}
+{"seconds": 25.052, "stage": "tick-end", "tick": 5, "status": "ready", "decisions": 5, "actions": 4, "url": "https://careers.hitachi.com/jobs", "focused": false, "workspace_active": false}
+{"seconds": 25.07, "stage": "tick-start", "tick": 6, "focused": false, "workspace_active": false}
+{"seconds": 25.071, "stage": "fresh-start"}
+{"seconds": 25.081, "stage": "fresh-end", "duration": 0.01}
+{"seconds": 25.081, "stage": "choose-start"}
+{"seconds": 25.403, "stage": "choose-end", "duration": 0.322, "operation": "CLICK", "target": "9", "latency_ms": 321}
+{"seconds": 25.403, "stage": "act-start"}
+{"seconds": 25.403, "stage": "fresh-start"}
+{"seconds": 25.405, "stage": "fresh-end", "duration": 0.002}
+{"seconds": 25.721, "stage": "act-end", "duration": 0.318}
+{"seconds": 25.721, "stage": "observe-start"}
+{"seconds": 25.758, "stage": "observe-end", "duration": 0.036}
+{"seconds": 25.777, "stage": "tick-end", "tick": 6, "status": "ready", "decisions": 6, "actions": 5, "url": "https://careers.hitachi.com/jobs", "focused": false, "workspace_active": false}
+{"seconds": 25.778, "stage": "run-end", "status": "ready", "decisions": 6, "actions": 5}
+daemon stopped — will restart fresh on next call

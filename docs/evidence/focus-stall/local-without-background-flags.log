@@ -1,0 +1,9 @@
+Owned window unfocused on inactive workspace before initial navigation
+{"check": "initial navigation on inactive workspace", "seconds": 1.799}
+{"check": "initial observation", "seconds": 0.006}
+{"check": "humanized fill", "seconds": 15.057}
+{"check": "post-fill observation", "seconds": 0.055}
+{"check": "humanized click", "seconds": 25.8}
+{"check": "post-click observation", "seconds": 0.056}
+{"outcome": "PASS for navigation/input/observations", "baseline_without_flags": true, "window_state": "unfocused on inactive workspace", "raf_frames_in_half_second": 0, "checks": [{"check": "initial navigation on inactive workspace", "seconds": 1.799}, {"check": "initial observation", "seconds": 0.006}, {"check": "humanized fill", "seconds": 15.057}, {"check": "post-fill observation", "seconds": 0.055}, {"check": "humanized click", "seconds": 25.8}, {"check": "post-click observation", "seconds": 0.056}]}
+daemon stopped — will restart fresh on next call

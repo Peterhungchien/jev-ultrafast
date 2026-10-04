@@ -1,0 +1,11 @@
+Owned window unfocused on inactive workspace before initial navigation
+{"check": "initial navigation on inactive workspace", "seconds": 1.799}
+{"check": "initial observation", "seconds": 0.006}
+{'probe': 'cdp', 'raw_step_seconds': [0.0055, 0.0169, 0.017, 0.0163, 0.0053, 0.0171, 0.0165, 0.017, 0.017, 0.0172, 0.016, 0.0165, 0.0179, 0.0164, 0.0169, 0.016, 0.0077, 0.0169, 0.0169, 1.0161, 1.0014, 1.0163, 1.0164, 1.017, 1.006, 1.0168, 1.0164, 1.0166, 1.0001, 1.0156, 1.0168, 1.0169, 1.0058, 1.0164, 1.0167, 1.0162, 1.0033]}
+{"check": "humanized fill", "seconds": 21.623}
+{"check": "post-fill observation", "seconds": 0.055}
+{'probe': 'cdp', 'raw_step_seconds': [0.3439, 1.0177, 1.0152, 1.0171, 0.9999, 1.0169, 1.0159, 1.0169, 1.0065, 1.0166, 1.0157, 1.0177, 1.0067, 1.017, 1.017, 1.0165, 1.0017, 1.0173, 1.0158, 1.0165, 1.0056, 1.0162, 1.0164, 1.0167, 1.0079, 1.0164]}
+{"check": "humanized click", "seconds": 26.019}
+{"check": "post-click observation", "seconds": 0.056}
+{"outcome": "PASS for navigation/input/observations", "baseline_without_flags": false, "window_state": "unfocused on inactive workspace", "raf_frames_in_half_second": 0, "checks": [{"check": "initial navigation on inactive workspace", "seconds": 1.799}, {"check": "initial observation", "seconds": 0.006}, {"check": "humanized fill", "seconds": 21.623}, {"check": "post-fill observation", "seconds": 0.055}, {"check": "humanized click", "seconds": 26.019}, {"check": "post-click observation", "seconds": 0.056}]}
+daemon stopped — will restart fresh on next call

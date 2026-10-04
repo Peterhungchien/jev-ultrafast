@@ -1,0 +1,29 @@
+import os
+import time
+from jev_ultrafast.stealth import HumanInput
+original_move = HumanInput._do_move
+
+def probe_move(self,x,y):
+    raw=self._page._human_raw_mouse
+    if not getattr(self,'_probed',False):
+        self._probed=True
+        raw_move=raw.move
+        self._samples=[]
+        self._mouse_session=self._page.context.new_cdp_session(self._page)
+        self._xy=(0,0)
+        def dispatch(event,**params):
+            return self._mouse_session.send('Input.dispatchMouseEvent',{'type':event,'x':self._xy[0],'y':self._xy[1],**params})
+        def move(mx,my):
+            self._xy=(mx,my)
+            begin=time.monotonic()
+            if os.environ.get('MOUSE_PROBE')=='cdp':dispatch('mouseMoved',button='none',buttons=0)
+            else:raw_move(mx,my)
+            self._samples.append(round(time.monotonic()-begin,4))
+        raw.move=move
+        if os.environ.get('MOUSE_PROBE')=='cdp':
+            raw.down=lambda:dispatch('mousePressed',button='left',buttons=1,clickCount=1)
+            raw.up=lambda:dispatch('mouseReleased',button='left',buttons=0,clickCount=1)
+    original_move(self,x,y)
+    print({'probe':os.environ.get('MOUSE_PROBE','playwright'),'raw_step_seconds':self._samples},flush=True)
+    self._samples=[]
+HumanInput._do_move=probe_move

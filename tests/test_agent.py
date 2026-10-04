@@ -265,6 +265,70 @@ def test_stale_observation_preserves_executed_action(runner):
     runner.state["browser"].act.assert_called_once()
 
 
+@pytest.mark.parametrize("settle_after", [0, 3, None])
+def test_observation_retries_reads_until_settled_or_deadline(monkeypatch, settle_after):
+    import jev_ultrafast.browser as browser
+
+    now = [0.0]
+    sleeps = []
+
+    def sleep(seconds):
+        sleeps.append(seconds)
+        now[0] += seconds
+
+    expected = page()
+    calls = []
+
+    def observe(request):
+        calls.append(request)
+        if settle_after is None or now[0] < settle_after:
+            raise StalePage("Document is navigating")
+        return expected
+
+    monkeypatch.setattr(browser.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(browser.time, "sleep", sleep)
+    monkeypatch.setattr(browser, "browser_operation", observe)
+    owned = browser.Browser.__new__(browser.Browser)
+    owned.session = "test"
+    if settle_after is None:
+        with pytest.raises(StalePage, match="Document is navigating"):
+            owned.observe(screenshot=False)
+        assert now[0] == browser.OBSERVATION_SETTLE_TIMEOUT
+    else:
+        assert owned.observe(screenshot=False) is expected
+        assert settle_after <= now[0] < settle_after + 0.5
+    assert all(call == {"operation": "observe", "session": "test", "screenshot": False} for call in calls)
+    assert all(0 < delay <= 0.5 for delay in sleeps)
+    if settle_after == 0:
+        assert len(calls) == 1 and not sleeps
+
+
+def test_slow_post_action_navigation_does_not_replay_mutation(runner, monkeypatch):
+    import jev_ultrafast.browser as browser
+
+    owned = browser.Browser.__new__(browser.Browser)
+    owned.session = "test"
+    now = [0.0]
+    monkeypatch.setattr(browser.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(browser.time, "sleep", lambda delay: now.__setitem__(0, now[0] + delay))
+    expected = page()
+
+    def observe(request):
+        assert len(runner.state["history"]) == 1  # Execution logged before every read.
+        if now[0] < 3:
+            raise StalePage("Document is navigating")
+        return expected
+
+    monkeypatch.setattr(browser, "browser_operation", observe)
+    monkeypatch.setattr(loop, "choose", Mock(return_value=decision("e3")))
+    runner.state["browser"].observe.side_effect = owned.observe
+    state = runner.command("tick")
+    assert state["status"] == "ready"
+    assert len(state["history"]) == 1
+    runner.state["browser"].act.assert_called_once()
+    loop.choose.assert_called_once()
+
+
 def test_observation_is_one_atomic_browser_read(monkeypatch):
     import jev_ultrafast.browser as browser
 
@@ -567,7 +631,8 @@ def test_stealth_keeps_local_control_traffic_out_of_proxy(monkeypatch):
     assert os.environ["NO_PROXY"].split(",")[0] == "example.test"
 
 
-def test_new_stealth_browser_replaces_an_unverified_cdp_daemon(monkeypatch):
+@pytest.mark.parametrize("headless", ["0", "1"])
+def test_new_stealth_browser_replaces_an_unverified_cdp_daemon(monkeypatch, headless):
     import cloakbrowser
     from browser_harness import admin
 
@@ -583,6 +648,7 @@ def test_new_stealth_browser_replaces_an_unverified_cdp_daemon(monkeypatch):
     restart = Mock()
     monkeypatch.setattr(admin, "restart_daemon", restart)
     monkeypatch.setenv("JEV_PROXY", "")
+    monkeypatch.setenv("JEV_HEADLESS", headless)
     monkeypatch.setenv("BU_CDP_URL", "http://old.test")
     monkeypatch.setenv("NO_PROXY", "")
     monkeypatch.setenv("no_proxy", "")
@@ -591,6 +657,17 @@ def test_new_stealth_browser_replaces_an_unverified_cdp_daemon(monkeypatch):
         assert stealth.ensure_stealth_browser() is launched
         restart.assert_called_once_with()
         assert os.environ["BU_CDP_URL"] == stealth.cdp_url()
+        cloakbrowser.launch.assert_called_once()
+        kwargs = cloakbrowser.launch.call_args.kwargs
+        assert kwargs["headless"] is (headless == "1")
+        assert kwargs["args"] == [
+            f"--remote-debugging-port={stealth.cdp_port()}",
+            "--remote-debugging-address=127.0.0.1",
+            "--disable-backgrounding-occluded-windows",
+            "--disable-renderer-backgrounding",
+            "--disable-background-timer-throttling",
+            *(["--disable-frame-rate-limit"] if headless == "0" else []),
+        ]
     finally:
         stealth._BROWSER = previous_browser
 

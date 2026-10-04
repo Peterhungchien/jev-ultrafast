@@ -13,6 +13,7 @@ from browser_harness.helpers import cdp
 READ_STATE = Path(__file__).with_name("snapshot.js").read_text()
 MARKER = f"(() => {{ const state={READ_STATE}; return state?.marker ?? null; }})()"
 NAVIGATION_RESPONSE_TIMEOUT = 30
+OBSERVATION_SETTLE_TIMEOUT = 30
 
 class StalePage(ValueError):
     """A decision no longer refers to the observed page."""
@@ -133,16 +134,21 @@ class Browser:
                 pass
             if action["kind"] in {"click", "submit"} and not adopted:
                 self._adopt_owned_popup()
-        for attempt in range(10):
+        # Navigation can take seconds, especially with stealth/proxy browsing.
+        # Retry only this read: input and its execution log must never be replayed.
+        deadline = time.monotonic() + OBSERVATION_SETTLE_TIMEOUT
+        delay = 0.02
+        while True:
             try:
                 return browser_operation(
                     {"operation": "observe", "session": self.session, "screenshot": screenshot}
                 )
             except StalePage:
-                if attempt == 9:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
                     raise
-                time.sleep(0.02)
-        raise StalePage("Page did not settle")
+                time.sleep(min(delay, remaining))
+                delay = min(delay * 2, 0.5)
 
     def fresh(self, page, action=None):
         if action is not None and action["kind"] in {"click", "fill", "select", "submit"}:
